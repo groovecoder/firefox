@@ -43,7 +43,20 @@ XPCOMUtils.defineLazyPreferenceGetter(
   false
 );
 
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "endpoint",
+  "browser.smartwindow.endpoint",
+  ""
+);
+
 export const AIWindowAccountAuth = {
+  /**
+   * Check if using LiteLLM endpoint directly (bypasses MLPA/FXA)
+   */
+  isUsingLiteLLM() {
+    return lazy.endpoint.includes("litellm");
+  },
   get hasToSConsent() {
     return !!lazy.hasAIWindowToSConsent;
   },
@@ -58,6 +71,12 @@ export const AIWindowAccountAuth = {
   },
 
   async isSignedIn() {
+    // Skip FXA check when using LiteLLM directly
+    if (this.isUsingLiteLLM()) {
+      lazy.log.debug("Bypassing FXA check - using LiteLLM endpoint directly");
+      return true;
+    }
+
     try {
       const userData = await lazy.fxAccounts.getSignedInUser();
       return !!userData;
@@ -68,6 +87,12 @@ export const AIWindowAccountAuth = {
   },
 
   async canAccessAIWindow() {
+    // Skip ToS consent when using LiteLLM directly
+    if (this.isUsingLiteLLM()) {
+      lazy.log.debug("Bypassing ToS check - using LiteLLM endpoint directly");
+      return true;
+    }
+
     if (!this.hasToSConsent) {
       return false;
     }

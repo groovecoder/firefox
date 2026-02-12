@@ -2266,17 +2266,22 @@ pref("browser.ml.linkPreview.supportedLocales", "en");
 pref("browser.ml.pageAssist.enabled", false);
 
 // AI Window Feature
-pref("browser.smartwindow.apiKey", '');
-pref("browser.smartwindow.chatHistory.loglevel", "Error");
-pref("browser.smartwindow.chatStore.loglevel", "Error");
-pref("browser.smartwindow.enabled", false);
-pref("browser.smartwindow.endpoint", "https://mlpa-prod-prod-mozilla.global.ssl.fastly.net/v1");
+// Smart window feature - uses LiteLLM service directly (bypassing MLPA)
+pref("browser.smartwindow.developer", false);
+pref("browser.smartwindow.enabled", true);
+pref("browser.smartwindow.endpoint", "https://litellm-gateway-stage.llm-proxy.nonprod.dataservices.mozgcp.net/v1");
+pref("browser.smartwindow.apiKey", "");
+pref("browser.smartwindow.model", "mistral-small-2503");
+pref("browser.smartwindow.extraHeaders", "{\"X-Fastly-Request\": \"\"}");
+pref("browser.smartwindow.chatHistory.loglevel", "Warn");
+pref("browser.smartwindow.skipOnboarding", true);
+pref("browser.smartwindow.requireSignIn", false);
 pref("browser.smartwindow.memories", true);
 pref("browser.smartwindow.memoriesLogLevel", "Warn");
+pref("browser.smartwindow.chatStore.loglevel", "Error");
 pref("browser.smartwindow.firstrun.autoAdvanceMS", 3000);
 pref("browser.smartwindow.firstrun.hasCompleted", false);
 pref("browser.smartwindow.firstrun.modelChoice", "");
-pref("browser.smartwindow.model", "");
 pref("browser.smartwindow.preferences.enabled", false);
 pref("browser.smartwindow.preferences.endpoint", "");
 

@@ -668,6 +668,12 @@ export class openAIEngine {
    * @returns {Promise<string|null>}   The Firefox account token (string) or null
    */
   static async getFxAccountToken() {
+    // Skip FXA token when using LiteLLM directly (uses API key instead)
+    const endpoint = Services.prefs.getStringPref(ENDPOINT_PREF, "");
+    if (endpoint.includes("litellm")) {
+      return null;
+    }
+
     try {
       const fxAccounts = getFxAccountsSingleton();
       return await fxAccounts.getOAuthToken({
