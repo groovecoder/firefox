@@ -97,6 +97,8 @@ class BrowserParent final : public PBrowserParent,
   // Helper class for ContentParent::RecvCreateWindow.
   struct AutoUseNewTab;
 
+  void SendExifUserChoiceToChild(bool aRemoveLocation);
+
   NS_INLINE_DECL_STATIC_IID(DOM_BROWSERPARENT_IID)
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_NSIAUTHPROMPTPROVIDER
@@ -740,6 +742,10 @@ class BrowserParent final : public PBrowserParent,
 
   mozilla::ipc::IPCResult RecvShowCanvasPermissionPrompt(
       const nsCString& aOrigin, const bool& aHideDoorHanger);
+
+  mozilla::ipc::IPCResult RecvNotifyExifDetected(const int32_t& aMode);
+
+  mozilla::ipc::IPCResult RecvNotifyExifAsk(const uint32_t& aFileCount);
 
   mozilla::ipc::IPCResult RecvSetSystemFont(const nsCString& aFontName);
   mozilla::ipc::IPCResult RecvGetSystemFont(nsCString* aFontName);

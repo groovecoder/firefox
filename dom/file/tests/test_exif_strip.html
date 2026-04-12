@@ -1,0 +1,226 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test EXIF stripping on file upload</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+<body>
+<input id="picker" type="file" accept="image/jpeg,image/png">
+<script>
+"use strict";
+
+SimpleTest.waitForExplicitFinish();
+
+// ---------------------------------------------------------------------------
+// Byte-array helpers
+// ---------------------------------------------------------------------------
+
+function concat(...arrays) {
+  const out = new Uint8Array(arrays.reduce((n, a) => n + a.length, 0));
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+// Little-endian writers
+const u8  = n => Uint8Array.of(n & 0xFF);
+const u16 = n => Uint8Array.of(n & 0xFF, (n >> 8) & 0xFF);
+const u32 = n => Uint8Array.of(n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF);
+
+// Big-endian writers
+const u16be = n => Uint8Array.of((n >> 8) & 0xFF, n & 0xFF);
+const u32be = n => Uint8Array.of((n >> 24) & 0xFF, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF);
+
+// ---------------------------------------------------------------------------
+// Test image builders — minimal JPEG and PNG with GPS EXIF
+// ---------------------------------------------------------------------------
+
+function buildExifTiff() {
+  const GPS_IFD_OFFSET = 26;
+  const LAT_OFFSET     = 92;
+  const LON_OFFSET     = LAT_OFFSET + 24; // 3 rationals × 8 bytes
+
+  // 12-byte TIFF IFD entry
+  const ifd = (tag, type, count, val) => concat(u16(tag), u16(type), u32(count), u32(val));
+  const rational = (num, den) => concat(u32(num), u32(den));
+
+  return concat(
+    // TIFF header
+    Uint8Array.of(0x49, 0x49), u16(42), u32(8),
+
+    // IFD0: 1 entry — GPS sub-IFD pointer, then next-IFD=0
+    u16(1),
+    ifd(0x8825, /*LONG*/4, 1, GPS_IFD_OFFSET),
+    u32(0),
+
+    // GPS IFD: 5 entries, then next-IFD=0
+    u16(5),
+    ifd(0x0000, /*BYTE*/1,     4, 0x00020200),       // GPSVersionID  [2,2,0,0]
+    ifd(0x0001, /*ASCII*/2,    2, 0x0000004E),       // GPSLatitudeRef "N"
+    ifd(0x0002, /*RATIONAL*/5, 3, LAT_OFFSET),       // GPSLatitude
+    ifd(0x0003, /*ASCII*/2,    2, 0x00000057),       // GPSLongitudeRef "W"
+    ifd(0x0004, /*RATIONAL*/5, 3, LON_OFFSET),       // GPSLongitude
+    u32(0),
+
+    // Lat: 37°46'30"N
+    rational(37, 1), rational(46, 1), rational(30, 1),
+    // Lon: 122°25'0"W
+    rational(122, 1), rational(25, 1), rational(0, 1),
+  );
+}
+
+function buildExifJpeg() {
+  const tiff    = buildExifTiff();
+  const app1    = concat(Uint8Array.of(0x45, 0x78, 0x69, 0x66, 0x00, 0x00), tiff); // "Exif\0\0"
+  const segLen  = 2 + app1.length;
+  return concat(
+    Uint8Array.of(0xFF, 0xD8),                     // SOI
+    Uint8Array.of(0xFF, 0xE1), u16be(segLen), app1, // APP1
+    Uint8Array.of(0xFF, 0xD9),                     // EOI
+  );
+}
+
+// CRC-32 for PNG chunks
+const CRC_TABLE = Uint32Array.from({length: 256}, (_, i) => {
+  let c = i;
+  for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+  return c;
+});
+const crc32 = data =>
+  (~data.reduce((c, b) => CRC_TABLE[(c ^ b) & 0xFF] ^ (c >>> 8), 0xFFFFFFFF)) >>> 0;
+
+function pngChunk(type, data) {
+  const crcInput = concat(type, data);
+  return concat(u32be(data.length), type, data, u32be(crc32(crcInput)));
+}
+
+function buildExifPng() {
+  // Minimal 1×1 white RGB pixel, zlib stored-block compressed
+  const rawRow    = Uint8Array.of(0, 255, 255, 255); // filter=None + RGB
+  const adler     = rawRow.reduce(
+    ({s1, s2}, b) => ({ s1: (s1 + b) % 65521, s2: (s2 + s1 + b) % 65521 }),
+    {s1: 1, s2: 0}
+  );
+  const idat = concat(
+    Uint8Array.of(0x78, 0x01),                        // zlib header
+    Uint8Array.of(0x01),                              // BFINAL=1, BTYPE=00 (stored)
+    u16(rawRow.length), u16(~rawRow.length),          // LEN, NLEN
+    rawRow,
+    u32be((adler.s2 << 16) | adler.s1),              // Adler-32
+  );
+
+  const ihdrData = concat(u32be(1), u32be(1), Uint8Array.of(8, 2, 0, 0, 0)); // 1×1, 8-bit RGB
+  return concat(
+    Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A), // PNG signature
+    pngChunk(Uint8Array.of(73, 72, 68, 82), ihdrData),               // IHDR
+    pngChunk(Uint8Array.of(101, 88, 73, 102), buildExifTiff()),      // eXIf
+    pngChunk(Uint8Array.of(73, 68, 65, 84), idat),                   // IDAT
+    pngChunk(Uint8Array.of(73, 69, 78, 68), new Uint8Array(0)),      // IEND
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EXIF presence detection
+// ---------------------------------------------------------------------------
+
+const JPEG_EXIF_SIG = Uint8Array.of(0x45, 0x78, 0x69, 0x66, 0x00, 0x00); // "Exif\0\0"
+const PNG_EXIF_TYPE = Uint8Array.of(0x65, 0x58, 0x49, 0x66);              // "eXIf"
+
+function containsSequence(haystack, needle) {
+  return haystack.some((_, i) => needle.every((b, j) => haystack[i + j] === b));
+}
+
+const hasExif = bytes =>
+  containsSequence(bytes, JPEG_EXIF_SIG) || containsSequence(bytes, PNG_EXIF_TYPE);
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+const makeFile = (bytes, name, type) => new File([bytes], name, { type });
+
+async function runClipboardItemsTest(domFile, label) {
+  const dt = new DataTransfer();
+  dt.items.add(domFile);
+  const file = dt.items[0].getAsFile();
+  ok(file, `${label}: getAsFile() returned a file`);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  ok(!hasExif(bytes), `${label}: EXIF absent from getAsFile() result`);
+}
+
+async function runPickerTest(domFile, label) {
+  const MockFilePicker = SpecialPowers.MockFilePicker;
+  MockFilePicker.init(SpecialPowers.wrap(window).browsingContext);
+  MockFilePicker.setFiles([domFile]);
+  MockFilePicker.returnValue = MockFilePicker.returnOK;
+
+  const input = document.getElementById("picker");
+  const changed = new Promise(r => input.addEventListener("change", r, { once: true }));
+
+  SpecialPowers.wrap(document).notifyUserGestureActivation();
+  input.click();
+  await changed;
+
+  const file = input.files[0];
+  ok(file, `${label}: file present after picker`);
+
+  const fromJs = new Uint8Array(await file.arrayBuffer());
+  ok(!hasExif(fromJs), `${label}: EXIF absent in JS arrayBuffer()`);
+
+  const resp = await fetch("exif_echo.sjs", { method: "POST", body: file });
+  ok(resp.ok, `${label}: echo server responded OK`);
+  ok(!hasExif(new Uint8Array(await resp.arrayBuffer())), `${label}: EXIF absent in echoed upload`);
+
+  MockFilePicker.cleanup();
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+(async () => {
+  try {
+    ok(hasExif(buildExifJpeg()), "baseline: JPEG test image has EXIF");
+    ok(hasExif(buildExifPng()),  "baseline: PNG test image has EXIF");
+
+    await SpecialPowers.pushPrefEnv({ set: [["privacy.removeExifOnUpload", true]] });
+    await runPickerTest(makeFile(buildExifJpeg(), "test.jpg", "image/jpeg"), "JPEG pref=ON");
+    await runPickerTest(makeFile(buildExifPng(),  "test.png", "image/png"),  "PNG pref=ON");
+    await runClipboardItemsTest(makeFile(buildExifJpeg(), "clip.jpg", "image/jpeg"), "JPEG clipboard items pref=ON");
+    await runClipboardItemsTest(makeFile(buildExifPng(),  "clip.png", "image/png"),  "PNG clipboard items pref=ON");
+    await SpecialPowers.popPrefEnv();
+
+    await SpecialPowers.pushPrefEnv({ set: [["privacy.removeExifOnUpload", false]] });
+    {
+      const MockFilePicker = SpecialPowers.MockFilePicker;
+      const input = document.getElementById("picker");
+      MockFilePicker.init(SpecialPowers.wrap(window).browsingContext);
+      MockFilePicker.setFiles([makeFile(buildExifJpeg(), "test_off.jpg", "image/jpeg")]);
+      MockFilePicker.returnValue = MockFilePicker.returnOK;
+      const changed = new Promise(r => input.addEventListener("change", r, { once: true }));
+      SpecialPowers.wrap(document).notifyUserGestureActivation();
+      input.click();
+      await changed;
+      const resp = await fetch("exif_echo.sjs", { method: "POST", body: input.files[0] });
+      ok(hasExif(new Uint8Array(await resp.arrayBuffer())), "JPEG pref=OFF: EXIF preserved");
+      MockFilePicker.cleanup();
+
+      const dt = new DataTransfer();
+      dt.items.add(makeFile(buildExifJpeg(), "clip_off.jpg", "image/jpeg"));
+      const clippedFile = dt.items[0].getAsFile();
+      ok(clippedFile, "JPEG clipboard items pref=OFF: getAsFile() returned a file");
+      ok(hasExif(new Uint8Array(await clippedFile.arrayBuffer())), "JPEG clipboard items pref=OFF: EXIF preserved");
+    }
+    await SpecialPowers.popPrefEnv();
+
+    SimpleTest.finish();
+  } catch (e) {
+    ok(false, `Unexpected error: ${e}\n${e.stack}`);
+    SimpleTest.finish();
+  }
+})();
+</script>
+</body>
+</html>

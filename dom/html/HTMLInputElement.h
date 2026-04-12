@@ -7,6 +7,8 @@
 #ifndef mozilla_dom_HTMLInputElement_h
 #define mozilla_dom_HTMLInputElement_h
 
+#include <functional>
+
 #include "mozilla/Attributes.h"
 #include "mozilla/Decimal.h"
 #include "mozilla/Maybe.h"
@@ -276,6 +278,25 @@ class HTMLInputElement final : public TextControlElement,
   // is dispatched.
   void MozSetDndFilesAndDirectories(
       const nsTArray<OwningFileOrDirectory>& aSequence);
+
+  struct PendingExifEntry {
+    RefPtr<File> original;
+    RefPtr<File> stripped;
+    bool hasGps = false;
+  };
+
+  struct PendingExifBatch {
+    nsTArray<OwningFileOrDirectory> origEntries;
+    nsTArray<PendingExifEntry> imageResults;
+    nsTArray<uint32_t> imageIndices;
+    std::function<void(nsTArray<OwningFileOrDirectory>)> finish;
+  };
+
+  void ResolveExifChoice(bool aRemoveLocation);
+
+  bool HasPendingExifBatch() const { return !!mPendingExifBatch; }
+
+  static HTMLInputElement* GetPendingExifAskInput();
 
   // Called when a nsIFilePicker or a nsIColorPicker terminate.
   void PickerClosed();
@@ -1476,6 +1497,8 @@ class HTMLInputElement final : public TextControlElement,
    */
   UniquePtr<InputType, InputType::DoNotDelete> mInputType;
 
+  UniquePtr<PendingExifBatch> mPendingExifBatch;
+
   static constexpr size_t INPUT_TYPE_SIZE =
       sizeof(Variant<TextInputType, SearchInputType, TelInputType, URLInputType,
                      EmailInputType, PasswordInputType, NumberInputType,
@@ -1689,6 +1712,15 @@ class HTMLInputElement final : public TextControlElement,
     NS_IMETHOD Done(nsIFilePicker::ResultCode aResult) override;
 
    private:
+    // Strips EXIF from any image files in aFiles asynchronously, then calls
+    // FinishPickerDone. If no images are present, calls FinishPickerDone
+    // synchronously.
+    void MaybeStripExifBatchAndFinish(nsTArray<OwningFileOrDirectory>&& aFiles);
+
+    // Stores the last-used directory, sets the file list on the input element,
+    // and dispatches the change event.
+    void FinishPickerDone(nsTArray<OwningFileOrDirectory> aFiles);
+
     nsCOMPtr<nsIFilePicker> mFilePicker;
     const RefPtr<HTMLInputElement> mInput;
   };

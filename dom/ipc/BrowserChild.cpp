@@ -47,6 +47,7 @@
 #include "mozilla/dom/DataTransfer.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"
+#include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/ImageDocument.h"
 #include "mozilla/dom/JSWindowActorChild.h"
 #include "mozilla/dom/LoadURIOptionsBinding.h"
@@ -3375,6 +3376,14 @@ IPCResult BrowserChild::RecvPreserveLayers(bool aPreserve) {
   UpdateVisibility();
   PresShellActivenessMaybeChanged();
 
+  return IPC_OK();
+}
+
+IPCResult BrowserChild::RecvExifUserChoice(const bool& aRemoveLocation) {
+  RefPtr<HTMLInputElement> input = HTMLInputElement::GetPendingExifAskInput();
+  if (input) {
+    input->ResolveExifChoice(aRemoveLocation);
+  }
   return IPC_OK();
 }
 

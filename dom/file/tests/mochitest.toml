@@ -43,6 +43,9 @@ skip-if = [
   "os == 'android'", # TIMED_OUT
 ]
 
+["test_exif_strip.html"]
+support-files = ["exif_echo.sjs"]
+
 ["test_file_from_blob.html"]
 
 ["test_file_negative_date.html"]

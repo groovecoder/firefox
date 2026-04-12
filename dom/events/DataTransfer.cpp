@@ -24,6 +24,7 @@
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"
+#include "mozilla/dom/ExifStripper.h"
 #include "mozilla/dom/FileList.h"
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/OSFileSystem.h"
@@ -448,7 +449,29 @@ nsIPolicyContainer* DataTransfer::GetPolicyContainer() {
 
 already_AddRefed<FileList> DataTransfer::GetFiles(
     nsIPrincipal& aSubjectPrincipal) {
-  return mItems->Files(&aSubjectPrincipal);
+  RefPtr<FileList> fileList = mItems->Files(&aSubjectPrincipal);
+  if (fileList && !mExifStripped && !aSubjectPrincipal.IsSystemPrincipal()) {
+    mExifStripped = true;
+    uint32_t len = fileList->Length();
+    nsTArray<RefPtr<File>> strippedFiles(len);
+    for (uint32_t i = 0; i < len; ++i) {
+      RefPtr<File> file = fileList->Item(i);
+      if (file) {
+        nsIGlobalObject* global = file->GetParentObject();
+        if (global) {
+          file = MaybeStripExifFromFile(file, global);
+        }
+      }
+      strippedFiles.AppendElement(std::move(file));
+    }
+    fileList->Clear();
+    for (auto& f : strippedFiles) {
+      if (f) {
+        fileList->Append(f);
+      }
+    }
+  }
+  return fileList.forget();
 }
 
 void DataTransfer::GetTypes(nsTArray<nsString>& aTypes,

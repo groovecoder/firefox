@@ -750,6 +750,8 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
 
   mozilla::ipc::IPCResult RecvPreserveLayers(bool);
 
+  mozilla::ipc::IPCResult RecvExifUserChoice(const bool& aRemoveLocation);
+
   mozilla::ipc::IPCResult RecvNavigateByKey(const bool& aForward,
                                             const bool& aForDocumentNavigation);
 

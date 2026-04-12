@@ -643,6 +643,16 @@ parent:
     async ShowCanvasPermissionPrompt(nsCString aOrigin,
                                      bool aHideDoorHanger);
 
+    /**
+     * Notify the parent that EXIF metadata was detected in an uploaded image.
+     *
+     * @param aWasStripped true if the EXIF was stripped (pref ON),
+     *                     false if detected but not stripped (pref OFF).
+     */
+    async NotifyExifDetected(int32_t aMode);
+
+    async NotifyExifAsk(uint32_t aFileCount);
+
     sync SetSystemFont(nsCString aFontName);
     sync GetSystemFont() returns (nsCString retval);
 
@@ -911,6 +921,9 @@ child:
      * browser is inactive.
      */
     async PreserveLayers(bool aPreserve);
+
+    async ExifUserChoice(bool aRemoveLocation);
+
 child:
     /**
      * Notify the child that it shouldn't paint the offscreen displayport.

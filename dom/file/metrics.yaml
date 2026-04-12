@@ -1,0 +1,59 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+# Adding a new metric? We have docs for that!
+# https://firefox-source-docs.mozilla.org/toolkit/components/glean/user/new_definitions_file.html
+
+---
+$schema: moz://mozilla.org/schemas/glean/metrics/2-0-0
+$tags:
+  - 'Core :: DOM: File'
+
+exif_strip:
+  image_input_type:
+    type: labeled_counter
+    description: >
+      Count of image files encountered at user input points (FilePicker,
+      drag-and-drop, clipboard paste), labeled by MIME type.
+    labels:
+      - jpeg
+      - png
+      - other
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1952272
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1952272
+    notification_emails:
+      - privacy-team@mozilla.com
+    expires: never
+
+  exif_detected:
+    type: labeled_counter
+    description: >
+      Count of images where EXIF data was detected at user input points.
+    labels:
+      - jpeg
+      - png
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1952272
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1952272
+    notification_emails:
+      - privacy-team@mozilla.com
+    expires: never
+
+  exif_stripped:
+    type: labeled_counter
+    description: >
+      Count of images where EXIF was successfully stripped at user input points.
+    labels:
+      - jpeg
+      - png
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1952272
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1952272
+    notification_emails:
+      - privacy-team@mozilla.com
+    expires: never

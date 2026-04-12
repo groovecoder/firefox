@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <memory>
 
 #include "HTMLDataListElement.h"
 #include "HTMLFormSubmissionConstants.h"
@@ -27,6 +29,7 @@
 #include "mozilla/ServoCSSParser.h"
 #include "mozilla/ServoComputedData.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPrefs_signon.h"
 #include "mozilla/TextControlState.h"
 #include "mozilla/TextEditor.h"
@@ -36,12 +39,14 @@
 #include "mozilla/Try.h"
 #include "mozilla/dom/AutocompleteInfoBinding.h"
 #include "mozilla/dom/BlobImpl.h"
+#include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/CustomEvent.h"
 #include "mozilla/dom/Directory.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/DocumentOrShadowRoot.h"
 #include "mozilla/dom/ElementBinding.h"
+#include "mozilla/dom/ExifStripper.h"
 #include "mozilla/dom/FileSystemUtils.h"
 #include "mozilla/dom/FormData.h"
 #include "mozilla/dom/GetFilesHelper.h"
@@ -148,6 +153,8 @@ namespace mozilla::dom {
 //  -1: no, 1: yes, 0: uninitialized
 static int32_t gSelectTextFieldOnFocus;
 UploadLastDir* HTMLInputElement::gUploadLastDir;
+
+static RefPtr<HTMLInputElement> sPendingExifAskInput;
 
 static constexpr nsAttrValue::EnumTableEntry kInputTypeTable[] = {
     {"button", FormControlType::InputButton},
@@ -386,6 +393,18 @@ UploadLastDir::ContentPrefCallback::HandleError(nsresult error) {
 
 namespace {
 
+// Holds the collected file list and pending async EXIF-strip count while
+// waiting for all MaybeStripExifFromFileAsync callbacks to complete.
+struct ExifStripBatch {
+  NS_INLINE_DECL_REFCOUNTING(ExifStripBatch)
+  nsTArray<OwningFileOrDirectory> files;
+  uint32_t pending = 0;
+  std::function<void(nsTArray<OwningFileOrDirectory>)> finish;
+
+ private:
+  ~ExifStripBatch() = default;
+};
+
 /**
  * This may return nullptr if the DOM File's implementation of
  * File::mozFullPathInternal does not successfully return a non-empty
@@ -555,9 +574,165 @@ HTMLInputElement::nsFilePickerShownCallback::Done(
     return NS_OK;
   }
 
-  // Store the last used directory using the content pref service:
-  nsCOMPtr<nsIFile> lastUsedDir = LastUsedDirectory(newFilesOrDirectories[0]);
+  MaybeStripExifBatchAndFinish(std::move(newFilesOrDirectories));
+  return NS_OK;
+}
 
+void HTMLInputElement::nsFilePickerShownCallback::MaybeStripExifBatchAndFinish(
+    nsTArray<OwningFileOrDirectory>&& aFiles) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  nsIGlobalObject* global = mInput->GetOwnerGlobal();
+  if (!global) {
+    FinishPickerDone(std::move(aFiles));
+    return;
+  }
+
+  auto mode =
+      static_cast<ExifStripMode>(StaticPrefs::privacy_removeExifOnUpload());
+
+  // Count image files that need processing.
+  uint32_t imageCount = 0;
+  for (const auto& entry : aFiles) {
+    if (entry.IsFile()) {
+      nsAutoString ct;
+      entry.GetAsFile()->GetType(ct);
+      if (ct.EqualsLiteral("image/jpeg") || ct.EqualsLiteral("image/png")) {
+        ++imageCount;
+      }
+    }
+  }
+
+  if (imageCount == 0) {
+    FinishPickerDone(std::move(aFiles));
+    return;
+  }
+
+  if (mode == ExifStripMode::Ask) {
+    // Ask mode: produce both versions, then block until user decides.
+    auto pendingBatch = MakeUnique<HTMLInputElement::PendingExifBatch>();
+    pendingBatch->origEntries = std::move(aFiles);
+    pendingBatch->finish = [self = RefPtr<nsFilePickerShownCallback>(this)](
+                               nsTArray<OwningFileOrDirectory> files) {
+      self->FinishPickerDone(std::move(files));
+    };
+
+    uint32_t pendingCount = imageCount;
+    auto shared = std::make_shared<uint32_t>(pendingCount);
+    RefPtr<HTMLInputElement> input = mInput;
+
+    for (uint32_t i = 0; i < pendingBatch->origEntries.Length(); ++i) {
+      if (!pendingBatch->origEntries[i].IsFile()) {
+        continue;
+      }
+      RefPtr<File> file = pendingBatch->origEntries[i].GetAsFile();
+      nsAutoString ct;
+      file->GetType(ct);
+      if (!ct.EqualsLiteral("image/jpeg") && !ct.EqualsLiteral("image/png")) {
+        continue;
+      }
+      uint32_t resultIdx = pendingBatch->imageIndices.Length();
+      pendingBatch->imageIndices.AppendElement(i);
+      pendingBatch->imageResults.AppendElement(
+          HTMLInputElement::PendingExifEntry());
+
+      StripGpsProduceBoth(
+          file, global,
+          [input, shared, resultIdx](ExifStripResult aResult) mutable {
+            MOZ_ASSERT(NS_IsMainThread());
+            if (!input->mPendingExifBatch) {
+              return;
+            }
+            auto& entry = input->mPendingExifBatch->imageResults[resultIdx];
+            entry.original = std::move(aResult.original);
+            entry.stripped = std::move(aResult.stripped);
+            entry.hasGps = aResult.hasGps;
+
+            if (--(*shared) == 0) {
+              // All files processed. Check if any have GPS.
+              bool anyGps = false;
+              for (const auto& r : input->mPendingExifBatch->imageResults) {
+                if (r.hasGps) {
+                  anyGps = true;
+                  break;
+                }
+              }
+
+              if (!anyGps) {
+                // No GPS found: deliver originals.
+                auto batch = std::move(input->mPendingExifBatch);
+                batch->finish(std::move(batch->origEntries));
+                return;
+              }
+
+              // GPS found: send NotifyExifAsk and wait for user choice.
+              auto* win = input->GetOwnerGlobal()
+                              ? input->GetOwnerGlobal()->GetAsInnerWindow()
+                              : nullptr;
+              BrowserChild* bc = win ? BrowserChild::GetFrom(win) : nullptr;
+              if (bc) {
+                uint32_t gpsCount = 0;
+                for (const auto& r : input->mPendingExifBatch->imageResults) {
+                  if (r.hasGps) {
+                    ++gpsCount;
+                  }
+                }
+                sPendingExifAskInput = input;
+                bc->SendNotifyExifAsk(gpsCount);
+              } else {
+                // No IPC channel: deliver originals.
+                auto batch = std::move(input->mPendingExifBatch);
+                batch->finish(std::move(batch->origEntries));
+              }
+            }
+          });
+    }
+
+    mInput->mPendingExifBatch = std::move(pendingBatch);
+    return;
+  }
+
+  // Always or Never mode: use existing async strip path.
+  auto batch = MakeRefPtr<ExifStripBatch>();
+  batch->files = std::move(aFiles);
+  batch->pending = imageCount;
+  batch->finish = [self = RefPtr<nsFilePickerShownCallback>(this)](
+                      nsTArray<OwningFileOrDirectory> files) {
+    self->FinishPickerDone(std::move(files));
+  };
+
+  for (uint32_t i = 0; i < batch->files.Length(); ++i) {
+    if (!batch->files[i].IsFile()) {
+      continue;
+    }
+    RefPtr<File> file = batch->files[i].GetAsFile();
+    nsAutoString ct;
+    file->GetType(ct);
+    if (!ct.EqualsLiteral("image/jpeg") && !ct.EqualsLiteral("image/png")) {
+      continue;
+    }
+    MaybeStripExifFromFileAsync(
+        file, global, [batch, i](already_AddRefed<File> aResult) mutable {
+          MOZ_ASSERT(NS_IsMainThread());
+          RefPtr<File> stripped = aResult;
+          batch->files[i].SetAsFile() = stripped;
+          if (--batch->pending == 0) {
+            batch->finish(std::move(batch->files));
+          }
+        });
+  }
+
+  if (mode == ExifStripMode::Never) {
+    RegisterExifReStripObserver(mInput);
+  }
+}
+
+void HTMLInputElement::nsFilePickerShownCallback::FinishPickerDone(
+    nsTArray<OwningFileOrDirectory> aFiles) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  // Store the last used directory using the content pref service.
+  nsCOMPtr<nsIFile> lastUsedDir = LastUsedDirectory(aFiles[0]);
   if (lastUsedDir) {
     HTMLInputElement::gUploadLastDir->StoreLastUsedDirectory(mInput->OwnerDoc(),
                                                              lastUsedDir);
@@ -566,12 +741,12 @@ HTMLInputElement::nsFilePickerShownCallback::Done(
   // The text control frame (if there is one) isn't going to send a change
   // event because it will think this is done by a script.
   // So, we can safely send one by ourself.
-  mInput->SetFilesOrDirectories(newFilesOrDirectories, true);
+  mInput->SetFilesOrDirectories(aFiles, true);
 
   // mInput(HTMLInputElement) has no scriptGlobalObject, don't create
   // DispatchChangeEventCallback
   if (!mInput->GetOwnerGlobal()) {
-    return NS_OK;
+    return;
   }
   RefPtr<DispatchChangeEventCallback> dispatchChangeEventCallback =
       new DispatchChangeEventCallback(mInput);
@@ -595,34 +770,57 @@ HTMLInputElement::nsFilePickerShownCallback::Done(
         if (supports) {
           RefPtr<BlobImpl> file = static_cast<File*>(supports.get())->Impl();
           MOZ_ASSERT(file);
-          if (!filesInWebKitDirectory.AppendElement(file, fallible)) {
-            return nsresult::NS_ERROR_OUT_OF_MEMORY;
-          }
+          filesInWebKitDirectory.AppendElement(file, fallible);
         }
       }
     }
 
     if (!filesInWebKitDirectory.IsEmpty()) {
       dispatchChangeEventCallback->Callback(NS_OK, filesInWebKitDirectory);
-      return NS_OK;
+      return;
     }
 #endif
 
     ErrorResult error;
     GetFilesHelper* helper = mInput->GetOrCreateGetFilesHelper(true, error);
     if (NS_WARN_IF(error.Failed())) {
-      return error.StealNSResult();
+      return;
     }
 
     helper->AddCallback(dispatchChangeEventCallback);
-    return NS_OK;
+    return;
   }
 
-  return dispatchChangeEventCallback->DispatchEvents();
+  NS_WARN_IF(NS_FAILED(dispatchChangeEventCallback->DispatchEvents()));
 }
 
 NS_IMPL_ISUPPORTS(HTMLInputElement::nsFilePickerShownCallback,
                   nsIFilePickerShownCallback)
+
+HTMLInputElement* HTMLInputElement::GetPendingExifAskInput() {
+  return sPendingExifAskInput;
+}
+
+void HTMLInputElement::ResolveExifChoice(bool aRemoveLocation) {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!mPendingExifBatch) {
+    return;
+  }
+  sPendingExifAskInput = nullptr;
+
+  auto batch = std::move(mPendingExifBatch);
+
+  for (uint32_t j = 0; j < batch->imageIndices.Length(); ++j) {
+    uint32_t fileIdx = batch->imageIndices[j];
+    const auto& entry = batch->imageResults[j];
+    if (entry.hasGps) {
+      RefPtr<File> chosen = aRemoveLocation ? entry.stripped : entry.original;
+      batch->origEntries[fileIdx].SetAsFile() = chosen;
+    }
+  }
+
+  batch->finish(std::move(batch->origEntries));
+}
 
 class nsColorPickerShownCallback final : public nsIColorPickerShownCallback {
   ~nsColorPickerShownCallback() = default;

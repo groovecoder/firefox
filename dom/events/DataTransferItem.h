@@ -125,6 +125,7 @@ class DataTransferItem final : public nsISupports, public nsWrapperCache {
   const nsString mType;
   nsCOMPtr<nsIVariant> mData;
   bool mDoNotAttemptToLoadData;
+  bool mExifStripped = false;
   nsCOMPtr<nsIPrincipal> mPrincipal;
   RefPtr<DataTransfer> mDataTransfer;
 

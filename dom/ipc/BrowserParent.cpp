@@ -4110,6 +4110,111 @@ mozilla::ipc::IPCResult BrowserParent::RecvShowCanvasPermissionPrompt(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult BrowserParent::RecvNotifyExifDetected(
+    const int32_t& aMode) {
+  nsCOMPtr<nsIBrowser> browser =
+      mFrameElement ? mFrameElement->AsBrowser() : nullptr;
+  if (!browser) {
+    return IPC_OK();
+  }
+  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
+  if (!os) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  const char16_t* data;
+  switch (aMode) {
+    case 0:
+      data = u"detected";
+      break;
+    case 1:
+      data = u"ask";
+      break;
+    default:
+      data = u"stripped";
+      break;
+  }
+  nsresult rv = os->NotifyObservers(browser, "exif-detected", data);
+  if (NS_FAILED(rv)) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
+}
+
+static RefPtr<BrowserParent> sPendingExifAskBrowserParent;
+static nsCOMPtr<nsIObserver> sExifUserChoiceObserver;
+
+namespace {
+
+class ExifUserChoiceObserver final : public nsIObserver {
+ public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSIOBSERVER
+ private:
+  ~ExifUserChoiceObserver() = default;
+};
+
+NS_IMPL_ISUPPORTS(ExifUserChoiceObserver, nsIObserver)
+
+NS_IMETHODIMP
+ExifUserChoiceObserver::Observe(nsISupports*, const char* aTopic,
+                                const char16_t* aData) {
+  if (strcmp(aTopic, "exif-user-choice") != 0) {
+    return NS_OK;
+  }
+  RefPtr<BrowserParent> bp = sPendingExifAskBrowserParent;
+  sPendingExifAskBrowserParent = nullptr;
+
+  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
+  if (os) {
+    os->RemoveObserver(this, "exif-user-choice");
+  }
+  sExifUserChoiceObserver = nullptr;
+
+  if (bp) {
+    bool removeLocation = nsDependentString(aData).EqualsLiteral("remove");
+    bp->SendExifUserChoiceToChild(removeLocation);
+  }
+  return NS_OK;
+}
+
+}  // namespace
+
+mozilla::ipc::IPCResult BrowserParent::RecvNotifyExifAsk(
+    const uint32_t& aFileCount) {
+  nsCOMPtr<nsIBrowser> browser =
+      mFrameElement ? mFrameElement->AsBrowser() : nullptr;
+  if (!browser) {
+    return IPC_OK();
+  }
+
+  // Register observer for user's choice before showing UI.
+  if (sExifUserChoiceObserver) {
+    nsCOMPtr<nsIObserverService> os = services::GetObserverService();
+    if (os) {
+      os->RemoveObserver(sExifUserChoiceObserver, "exif-user-choice");
+    }
+  }
+  sPendingExifAskBrowserParent = this;
+  sExifUserChoiceObserver = new ExifUserChoiceObserver();
+  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
+  if (!os) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  os->AddObserver(sExifUserChoiceObserver, "exif-user-choice", false);
+
+  nsresult rv = os->NotifyObservers(browser, "exif-detected", u"ask");
+  if (NS_FAILED(rv)) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
+}
+
+void BrowserParent::SendExifUserChoiceToChild(bool aRemoveLocation) {
+  if (!SendExifUserChoice(aRemoveLocation)) {
+    NS_WARNING("SendExifUserChoice failed");
+  }
+}
+
 mozilla::ipc::IPCResult BrowserParent::RecvVisitURI(
     nsIURI* aURI, nsIURI* aLastVisitedURI, const uint32_t& aFlags,
     const uint64_t& aBrowserId) {

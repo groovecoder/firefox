@@ -9,12 +9,15 @@ with Files("**"):
 
 DIRS += ["ipc", "uri"]
 
+TEST_DIRS += ["tests/gtest"]
+
 EXPORTS.mozilla.dom += [
     "BaseBlobImpl.h",
     "Blob.h",
     "BlobImpl.h",
     "BlobSet.h",
     "EmptyBlobImpl.h",
+    "ExifStripper.h",
     "File.h",
     "FileBlobImpl.h",
     "FileCreatorHelper.h",
@@ -34,6 +37,7 @@ UNIFIED_SOURCES += [
     "BlobImpl.cpp",
     "BlobSet.cpp",
     "EmptyBlobImpl.cpp",
+    "ExifStripper.cpp",
     "File.cpp",
     "FileBlobImpl.cpp",
     "FileCreatorHelper.cpp",

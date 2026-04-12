@@ -16796,6 +16796,11 @@
   value: true
   mirror: always
 
+- name: privacy.removeExifOnUpload
+  type: RelaxedAtomicInt32
+  value: 1
+  mirror: always
+
 # The resistFingerprinting variables are marked with 'Relaxed' memory ordering.
 # We don't particurally care that threads have a percently consistent view of
 # the values of these prefs. They are not expected to change often, and having

@@ -563,6 +563,10 @@ class DataTransfer final : public nsISupports, public nsWrapperCache {
   // Whether to animate the drag back to its starting point if it fails.
   // Not supported everywhere.
   bool mShowFailAnimation = true;
+
+  // Set to true after EXIF stripping has been applied to the file list, to
+  // avoid stripping again on repeated calls to GetFiles().
+  bool mExifStripped = false;
 };
 
 }  // namespace dom

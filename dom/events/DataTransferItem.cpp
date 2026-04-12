@@ -17,6 +17,7 @@
 #include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/DataTransferItemBinding.h"
 #include "mozilla/dom/Directory.h"
+#include "mozilla/dom/ExifStripper.h"
 #include "mozilla/dom/FileSystem.h"
 #include "mozilla/dom/FileSystemDirectoryEntry.h"
 #include "mozilla/dom/FileSystemFileEntry.h"
@@ -348,6 +349,13 @@ already_AddRefed<File> DataTransferItem::GetAsFile(
         MOZ_ASSERT(false, "One of the above code paths should be taken");
         return nullptr;
       }
+    }
+  }
+
+  if (mCachedFile && !mExifStripped && !aSubjectPrincipal.IsSystemPrincipal()) {
+    mExifStripped = true;
+    if (nsIGlobalObject* global = mCachedFile->GetParentObject()) {
+      mCachedFile = MaybeStripExifFromFile(mCachedFile, global);
     }
   }
 
