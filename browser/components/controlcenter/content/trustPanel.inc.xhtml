@@ -18,6 +18,8 @@
                mainview-with-header="true"
                has-custom-header="true">
 
+      <html:exif-alert-panel id="trustpanel-exif-alert-section" hidden="true"></html:exif-alert-panel>
+
       <vbox id="trustpanel-header-section">
         <hbox id="trustpanel-header-row">
           <hbox id="trustpanel-popup-host-wrapper">
@@ -48,7 +50,7 @@
           </hbox>
           <vbox id="trustpanel-blocker-section" class="trustpanel-graphic-inner">
             <label data-l10n-id="trustpanel-blocker-section-header2" data-l10n-args='{"count":0}' id="trustpanel-blocker-section-header" class="trustpanel-header"></label>
-            <label data-l10n-id="trustpanel-blocker-description"></label>
+            <label data-l10n-id="trustpanel-blocker-description" id="trustpanel-blocker-description"></label>
             <html:moz-button-group>
               <html:moz-button id="trustpanel-blocker-see-all" data-l10n-id="trustpanel-blocker-see-all" default="true" size="small" type="primary"></html:moz-button>
             </html:moz-button-group>

@@ -35,6 +35,7 @@ DIRS += [
     "attribution",
     "backup",
     "contentanalysis",
+    "controlcenter",
     "contextualidentity",
     "customizableui",
     "customkeys",

@@ -267,6 +267,22 @@ class TrustPanel {
       document
         .getElementById("trustpanel-popup-security-httpsonlymode-menulist")
         .addEventListener("command", () => this.#changeHttpsOnlyPermission());
+      // Pre-import the EXIF panel module so it is cached for Ask mode.
+      import("chrome://browser/content/controlcenter/components/exif-alert-panel.mjs");
+      document
+        .getElementById("trustpanel-exif-alert-section")
+        .addEventListener("exif-action", e => {
+          let exifPanel = document.getElementById(
+            "trustpanel-exif-alert-section"
+          );
+          let action = e.detail?.action;
+          let choiceData = action === "remove" ? "remove" : "include";
+          Services.obs.notifyObservers(null, "exif-user-choice", choiceData);
+          exifPanel.exifStatus = action === "remove" ? "stripped" : "detected";
+          exifPanel.hidden = true;
+          document.getElementById("trustpanel-header-section").hidden = false;
+          this.#hidePopup();
+        });
 
       this.#popup.addEventListener("popupshown", this);
     }
@@ -309,6 +325,43 @@ class TrustPanel {
     await hidden;
   }
 
+  async showExifAlert(mode) {
+    this.#initializePopup();
+
+    let exifPanel = document.getElementById("trustpanel-exif-alert-section");
+    let anchor = document.getElementById("trust-icon-container");
+
+    if (mode === "stripped") {
+      exifPanel.exifStatus = "stripped";
+      ConfirmationHint.show(anchor, "confirmation-hint-exif-stripped", {
+        position: "bottomleft topleft",
+      });
+      return;
+    }
+
+    if (mode === "detected") {
+      exifPanel.exifStatus = "detected";
+      ConfirmationHint.show(
+        anchor,
+        "confirmation-hint-exif-shared-with-location",
+        {
+          position: "bottomleft topleft",
+        }
+      );
+      return;
+    }
+
+    // "ask" mode: show trust panel with confirmation buttons.
+    await import("chrome://browser/content/controlcenter/components/exif-alert-panel.mjs");
+
+    exifPanel.exifStatus = mode;
+    exifPanel.hidden = false;
+    document.getElementById("trustpanel-header-section").hidden = true;
+
+    await exifPanel.updateComplete;
+    this.showPopup({ reason: "exifDetected" });
+  }
+
   updateIdentity(state, uri) {
     if (!this.#enabled) {
       return;
@@ -326,6 +379,16 @@ class TrustPanel {
     // Clear any previously-determined QWAC information.
     this.#qwac = null;
     this.#qwacStatusPromise = null;
+
+    // Clear EXIF alert state from previous page.
+    let exifPanel = document.getElementById("trustpanel-exif-alert-section");
+    if (exifPanel) {
+      exifPanel.exifStatus = "idle";
+      exifPanel.hidden = true;
+    }
+    if (this.#popup) {
+      document.getElementById("trustpanel-graphic-section").hidden = false;
+    }
     this.#pageExtensionPolicy = WebExtensionPolicy.getByURI(uri);
 
     this.#updateUrlbarIcon();
@@ -366,10 +429,18 @@ class TrustPanel {
       onlyBaseDomain: true,
     });
     this.#popup.setAttribute("connection", this.#connectionState());
-    this.#popup.setAttribute(
-      "tracking-protection",
-      this.#trackingProtectionStatus()
-    );
+    let exifPanel = document.getElementById("trustpanel-exif-alert-section");
+    let exifStatus = exifPanel?.exifStatus;
+    if (exifStatus === "stripped") {
+      this.#popup.setAttribute("tracking-protection", "enabled");
+    } else if (exifStatus === "detected") {
+      this.#popup.setAttribute("tracking-protection", "disabled");
+    } else {
+      this.#popup.setAttribute(
+        "tracking-protection",
+        this.#trackingProtectionStatus()
+      );
+    }
 
     await this.#updateMainView();
   }
@@ -408,14 +479,36 @@ class TrustPanel {
       document.getElementById("trustpanel-etp-description"),
       assets.description
     );
-    document.l10n.setAttributes(
-      document.getElementById("trustpanel-header"),
-      assets.header
-    );
-    document.l10n.setAttributes(
-      document.getElementById("trustpanel-description"),
-      assets.innerDescription
-    );
+    let exifPanel = document.getElementById("trustpanel-exif-alert-section");
+    let exifStatus = exifPanel?.exifStatus;
+    if (exifStatus === "stripped") {
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-header"),
+        ETP_ENABLED_ASSETS.header
+      );
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-description"),
+        ETP_ENABLED_ASSETS.innerDescription
+      );
+    } else if (exifStatus === "detected") {
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-header"),
+        ETP_DISABLED_ASSETS.header
+      );
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-description"),
+        "trustpanel-exif-detected-description"
+      );
+    } else {
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-header"),
+        assets.header
+      );
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-description"),
+        assets.innerDescription
+      );
+    }
     document.l10n.setAttributes(
       document.getElementById("trustpanel-connection-label"),
       secureConnection
@@ -423,12 +516,25 @@ class TrustPanel {
         : "trustpanel-connection-label-insecure"
     );
 
-    this.#updateAttribute(
-      document.getElementById("trustpanel-blocker-section"),
-      "hidden",
-      !this.anyDetected
-    );
-    await this.#updateBlockerView();
+    let blockerSection = document.getElementById("trustpanel-blocker-section");
+    let blockerDesc = document.getElementById("trustpanel-blocker-description");
+    let blockerSeeAll = document.getElementById("trustpanel-blocker-see-all");
+    if (exifStatus === "stripped" || exifStatus === "detected") {
+      blockerSection.removeAttribute("hidden");
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-blocker-section-header"),
+        exifStatus === "stripped"
+          ? "trustpanel-exif-stripped-blocker-header"
+          : "trustpanel-exif-detected-blocker-header"
+      );
+      blockerDesc.hidden = true;
+      blockerSeeAll.hidden = true;
+    } else {
+      this.#updateAttribute(blockerSection, "hidden", !this.anyDetected);
+      blockerDesc.hidden = false;
+      blockerSeeAll.hidden = false;
+      await this.#updateBlockerView();
+    }
   }
 
   async #updateBlockerView() {

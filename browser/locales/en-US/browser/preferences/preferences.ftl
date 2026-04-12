@@ -2015,6 +2015,19 @@ permissions-addon-install-warning3 =
     .label = Show warning when websites try to install extensions
     .accesskey = W
 
+permissions-remove-exif-on-upload =
+    .label = Photo location privacy
+    .description = Choose if photos you upload share location details. We’ll follow this every time.
+permissions-exif-option-ask =
+    .label = Ask me each time (Recommended)
+    .description = Choose before sharing
+permissions-exif-option-always =
+    .label = Always remove location details
+    .description = Photos won’t include where they were taken
+permissions-exif-option-never =
+    .label = Always include location
+    .description = Photos can include where they were taken
+
 permissions-addon-exceptions2 =
     .label = Choose which websites can install extensions
     .accesskey = E
@@ -2360,7 +2373,7 @@ preferences-ai-controls-state-available =
 # This option means a user has opted in to use the feature.
 preferences-ai-controls-state-enabled =
     .label = Enabled
-# This option means the user won't see and can't use the feature. For on-device AI, any models already downloaded are removed.
+# This option means the user won’t see and can't use the feature. For on-device AI, any models already downloaded are removed.
 preferences-ai-controls-state-blocked =
     .label = Blocked
 

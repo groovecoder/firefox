@@ -4052,6 +4052,25 @@ SettingGroupManager.registerGroups({
         id: "notificationsDoNotDisturb",
         l10nId: "permissions-notification-pause",
       },
+      {
+        id: "removeExifOnUpload",
+        l10nId: "permissions-remove-exif-on-upload",
+        control: "moz-radio-group",
+        options: [
+          {
+            value: 1,
+            l10nId: "permissions-exif-option-ask",
+          },
+          {
+            value: 2,
+            l10nId: "permissions-exif-option-always",
+          },
+          {
+            value: 0,
+            l10nId: "permissions-exif-option-never",
+          },
+        ],
+      },
     ],
   },
   dnsOverHttps: {

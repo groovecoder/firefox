@@ -354,3 +354,6 @@
     display: none;
   }
 }
+
+/* No shield animation for EXIF alerts — the panel auto-open is sufficient,
+   and scale animations cause jitter on panel-anchored popups. */

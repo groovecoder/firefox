@@ -1,0 +1,63 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+.container {
+  padding-block: var(--space-small);
+  padding-inline: var(--space-large);
+  display: flex;
+  flex-direction: column;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.card {
+  background-color: var(--background-color-box);
+  padding: var(--space-large);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-small);
+  align-self: stretch;
+  border-radius: var(--border-radius-medium);
+
+  &.ask {
+    /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
+    background: var(--trustpanel-warning-bg);
+  }
+}
+
+.main {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-large);
+  align-self: stretch;
+}
+
+img {
+  -moz-context-properties: fill;
+  fill: light-dark(#0090ed, #80ebff);
+  width: 80px;
+  height: 80px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-small);
+  flex: 1 0 0;
+
+  & * {
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  & .header {
+    font-size: unset;
+    font-weight: var(--font-weight-heading);
+  }
+}

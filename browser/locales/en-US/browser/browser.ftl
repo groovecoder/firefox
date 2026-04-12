@@ -1448,6 +1448,19 @@ trustpanel-tracking-description = Without trackers, some buttons, forms, and log
 trustpanel-insecure-section-header = Your connection isn’t secure
 trustpanel-insecure-description = The data you’re sending to this site isn’t encrypted. It could be viewed, stolen, or altered.
 
+trustpanel-exif-ask-header = { -brand-product-name } found location details in this photo
+trustpanel-exif-ask-description = Remove location to keep it private.
+trustpanel-exif-detected-header = Photo shared with location
+trustpanel-exif-detected-description = { -brand-product-name } is off-duty.
+trustpanel-exif-stripped-header = { -brand-product-name } protected your location data
+trustpanel-exif-stripped-description = Location data was removed from the image before upload.
+trustpanel-exif-stripped-blocker-header = { -brand-product-name } removed location from your photo
+trustpanel-exif-detected-blocker-header = This site received location data in your photo
+trustpanel-exif-share =
+    .label = Share with location
+trustpanel-exif-remove =
+    .label = Remove location
+
 trustpanel-list-label-tracking-cookies = { $count ->
   [one] { $count } Cross-site tracking cookie
   *[other] { $count } Cross-site tracking cookies

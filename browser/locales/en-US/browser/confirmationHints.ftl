@@ -20,6 +20,8 @@ confirmation-hint-send-to-device = Sent!
 confirmation-hint-firefox-relay-mask-created = New mask created!
 confirmation-hint-firefox-relay-mask-reused = Existing mask reused!
 confirmation-hint-screenshot-copied = Screenshot copied!
+confirmation-hint-exif-stripped = Location removed from photo
+confirmation-hint-exif-shared-with-location = Photo shared with location
 # Variables:
 #   $tabCount (Number): The number of duplicate tabs closed, at least 1.
 confirmation-hint-duplicate-tabs-closed =

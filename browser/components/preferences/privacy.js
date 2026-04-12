@@ -297,6 +297,7 @@ Preferences.addAll([
 
   // Permissions
   { id: "media.setsinkid.enabled", type: "bool" },
+  { id: "privacy.removeExifOnUpload", type: "int" },
 
   // Security and Privacy Warnings
   { id: "browser.preferences.config_warning.dismissAll", type: "bool" },
@@ -2010,6 +2011,10 @@ Preferences.addSetting({
   visible: () => {
     return AlertsServiceDND != undefined;
   },
+});
+Preferences.addSetting({
+  id: "removeExifOnUpload",
+  pref: "privacy.removeExifOnUpload",
 });
 Preferences.addSetting({
   id: "locationSettingsButton",
